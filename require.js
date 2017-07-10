@@ -1100,72 +1100,75 @@ var requirejs, require, define;
                     //could be some weird string with no path that actually wants to
                     //reference the parentName's path.
 
-                    // EAP - here is where the plugin is asked to load whatever it 
-                    // wants to load. Here is where we can intercept and load the 
-                    // asset directly. 
+                    if (window.require_resources) {
 
-                    // Note -- typical plugin pattern is to strip of the extension
-                    // for the "normalized" name, and the tack it back on for the 
-                    // path during load. Not always though, e.g. yaml plugin.
-                    // The patter is annoying because it means that the same base
-                    // name cannot be used for different modules. This is very
-                    // handy for a base js module with assets that carry the same 
-                    // base name.
+                        // EAP - here is where the plugin is asked to load whatever it 
+                        // wants to load. Here is where we can intercept and load the 
+                        // asset directly. 
 
-                    var url = localRequire.toUrl(map.name);
-                    // just split off the search part -- it is only used for
-                    // cache busting.
-                    var reLocalPath = /^(\/.*?)(\?.*)*$/;
-                    // split off the extension, if any.
-                    // we don't care about the extension for the vfs - the key is
-                    // based on the base name so that we can have multiple file types
-                    // map to the same plugin handler...
-                    // TODO: both in one
-                    var rePathExt = /^(.*?)(?:\.([^.]*))?$/;
-                    var m = reLocalPath.exec(url);
-                    if (m) {
-                        var realPath = m[1];
-                        var query = m[2];
+                        // Note -- typical plugin pattern is to strip of the extension
+                        // for the "normalized" name, and the tack it back on for the 
+                        // path during load. Not always though, e.g. yaml plugin.
+                        // The patter is annoying because it means that the same base
+                        // name cannot be used for different modules. This is very
+                        // handy for a base js module with assets that carry the same 
+                        // base name.
 
-                        m = rePathExt.exec(realPath);
-                        var barePath = m[1];
+                        var url = localRequire.toUrl(map.name);
+                        // just split off the search part -- it is only used for
+                        // cache busting.
+                        var reLocalPath = /^(\/.*?)(\?.*)*$/;
+                        // split off the extension, if any.
+                        // we don't care about the extension for the vfs - the key is
+                        // based on the base name so that we can have multiple file types
+                        // map to the same plugin handler...
+                        // TODO: both in one
+                        var rePathExt = /^(.*?)(?:\.([^.]*))?$/;
+                        var m = reLocalPath.exec(url);
+                        if (m) {
+                            var realPath = m[1];
+                            var query = m[2];
 
-                        // var vfsContent = window.require_resources[realPath];
-                        var vfsContent;
+                            m = rePathExt.exec(realPath);
+                            var barePath = m[1];
 
-                        // EAP
-                        // yes, we need to rewrite the plugin system to handle this...
-                        // or create a parallel plugin system...
-                        var handled = false;
-                        switch (pluginMap.name) {
-                            case 'json':
-                                vfsContent = window.require_resources.json[barePath];
-                                break;
-                            case 'yaml':
-                                vfsContent = window.require_resources.json[barePath];
-                                break;
-                            case 'text':
-                                vfsContent = window.require_resources.text[barePath];
-                                break;
-                                // Don't do css for now. 
-                                // Css itself can include imports of other css and fonts,
-                                // which only work when loaded via urls.
-                            case 'css':
-                                vfsContent = window.require_resources.css[barePath];
-                                if (vfsContent) {
-                                    var head = document.getElementsByTagName('head')[0];
-                                    var style = document.createElement('style');
-                                    // console.log('style used: ', barePath, vfsContent.length);
-                                    head.appendChild(style);
-                                    style.innerText = vfsContent;
-                                    load();
-                                    return;
-                                }
-                        }
+                            // var vfsContent = window.require_resources[realPath];
+                            var vfsContent;
 
-                        if (vfsContent) {
-                            load(vfsContent);
-                            return;
+                            // EAP
+                            // yes, we need to rewrite the plugin system to handle this...
+                            // or create a parallel plugin system...
+                            var handled = false;
+                            switch (pluginMap.name) {
+                                case 'json':
+                                    vfsContent = window.require_resources.json[barePath];
+                                    break;
+                                case 'yaml':
+                                    vfsContent = window.require_resources.json[barePath];
+                                    break;
+                                case 'text':
+                                    vfsContent = window.require_resources.text[barePath];
+                                    break;
+                                    // Don't do css for now. 
+                                    // Css itself can include imports of other css and fonts,
+                                    // which only work when loaded via urls.
+                                case 'css':
+                                    vfsContent = window.require_resources.css[barePath];
+                                    if (vfsContent) {
+                                        var head = document.getElementsByTagName('head')[0];
+                                        var style = document.createElement('style');
+                                        // console.log('style used: ', barePath, vfsContent.length);
+                                        head.appendChild(style);
+                                        style.innerText = vfsContent;
+                                        load();
+                                        return;
+                                    }
+                            }
+
+                            if (vfsContent) {
+                                load(vfsContent);
+                                return;
+                            }
                         }
                     }
 
