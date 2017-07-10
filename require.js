@@ -1150,20 +1150,20 @@ var requirejs, require, define;
                                 // Don't do css for now. 
                                 // Css itself can include imports of other css and fonts,
                                 // which only work when loaded via urls.
-                                // case 'css':
-                                //     vfsContent = window.require_resources.css[barePath];
-                                //     if (vfsContent) {
-                                //         var head = document.getElementsByTagName('head')[0];
-                                //         var style = document.createElement('style');
-                                //         head.appendChild(style);
-                                //         style.innerText = vfsContent;
-                                //         handled = true;
-                                //         load();
-                                //         return;
-                                //     }
+                            case 'css':
+                                vfsContent = window.require_resources.css[barePath];
+                                if (vfsContent) {
+                                    var head = document.getElementsByTagName('head')[0];
+                                    var style = document.createElement('style');
+                                    // console.log('style used: ', barePath, vfsContent.length);
+                                    head.appendChild(style);
+                                    style.innerText = vfsContent;
+                                    load();
+                                    return;
+                                }
                         }
 
-                        if (!handled && vfsContent) {
+                        if (vfsContent) {
                             load(vfsContent);
                             return;
                         }
