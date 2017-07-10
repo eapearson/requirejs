@@ -1136,21 +1136,34 @@ var requirejs, require, define;
                         // EAP
                         // yes, we need to rewrite the plugin system to handle this...
                         // or create a parallel plugin system...
+                        var handled = false;
                         switch (pluginMap.name) {
                             case 'json':
-                                console.log('got json as json! ' + barePath);
                                 vfsContent = window.require_resources.json[barePath];
                                 break;
                             case 'yaml':
-                                console.log('got yaml as json! ' + barePath);
                                 vfsContent = window.require_resources.json[barePath];
                                 break;
                             case 'text':
                                 vfsContent = window.require_resources.text[barePath];
                                 break;
+                                // Don't do css for now. 
+                                // Css itself can include imports of other css and fonts,
+                                // which only work when loaded via urls.
+                                // case 'css':
+                                //     vfsContent = window.require_resources.css[barePath];
+                                //     if (vfsContent) {
+                                //         var head = document.getElementsByTagName('head')[0];
+                                //         var style = document.createElement('style');
+                                //         head.appendChild(style);
+                                //         style.innerText = vfsContent;
+                                //         handled = true;
+                                //         load();
+                                //         return;
+                                //     }
                         }
 
-                        if (vfsContent) {
+                        if (!handled && vfsContent) {
                             load(vfsContent);
                             return;
                         }
