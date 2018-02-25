@@ -7,7 +7,7 @@
 /*jslint regexp: true, nomen: true, sloppy: true */
 /*global window, navigator, document, importScripts, setTimeout, opera */
 
-var requirejs, require, define;
+// var requirejs, require, define;
 (function(global, setTimeout) {
     var req, s, head, baseElement, dataMain, src,
         interactiveScript, currentlyAddingScript, mainScript, subPath,
@@ -26,8 +26,8 @@ var requirejs, require, define;
         // then 'complete'. The UA check is unfortunate, but not sure how
         //to feature test w/o causing perf issues.
         readyRegExp = isBrowser && navigator.platform === 'PLAYSTATION 3' ?
-        /^complete$/ : /^(complete|loaded)$/,
-        defContextName = '_',
+            /^complete$/ : /^(complete|loaded)$/,
+        defContextName = 'DEFAULT_CONTEXT',
         //Oh the tragedy, detecting opera. See the usage of isOpera for reason.
         isOpera = typeof opera !== 'undefined' && opera.toString() === '[object Opera]',
         contexts = {},
@@ -175,26 +175,70 @@ var requirejs, require, define;
         return e;
     }
 
-    if (typeof define !== 'undefined') {
-        //If a define is already in play via another AMD loader,
-        //do not overwrite.
-        return;
+    if (typeof global.define !== 'undefined') {
+        // Only one AMD loader may be used in an app at one time.
+        // Although there is general compatibility, there are features
+        // in this fork of requirejs which are not found in other
+        // AMD loaders.
+        throw new Error('A global "define" is already established -- cannot load requirejs');
     }
 
-    if (typeof requirejs !== 'undefined') {
-        if (isFunction(requirejs)) {
-            //Do not overwrite an existing requirejs instance.
-            return;
+    if (typeof global.requirejs !== 'undefined') {
+        if (isFunction(global.requirejs)) {
+            // As our policy is to fail with unexpected conditions, we now do so here.
+            // Requirejs loaded more than once is not a good idea, and there is no
+            // guarantee that this is the same version of the same requirejs or that
+            // it is even really requirejs.
+            throw new Error('requirejs is already loaded');
         }
-        cfg = requirejs;
-        requirejs = undefined;
+        // This supports the practice of setting up a global requirejs which is actually
+        // the require-config for requirejs.
+        // We may remove this in the future.
+        cfg = global.requirejs;
+        delete global.requirejs;
     }
 
-    //Allow for a require config object
-    if (typeof require !== 'undefined' && !isFunction(require)) {
+    // Same business here.
+    // TODO: There should note be a "requirejs" and a "require" in the global namespace.
+    //       Should throw an error.
+    //       Also, as noted above, we should remove this and possibly issue a deprecation
+    //       notice until them.
+    if (typeof global.require !== 'undefined' && !isFunction(global.require)) {
         //assume it is a config object.
-        cfg = require;
-        require = undefined;
+        cfg = global.require;
+        delete global.require;
+    }
+
+    /**
+     * Trims the . and .. from an array of path segments.
+     * It will keep a leading path segment if a .. will become
+     * the first path segment, to help with module name lookups,
+     * which act like paths, but can be remapped. But the end result,
+     * all paths that use this function should look normalized.
+     * NOTE: this method MODIFIES the input array.
+     * @param {Array} ary the array of path segments.
+     */
+    function trimDots(ary) {
+        var i, part;
+        for (i = 0; i < ary.length; i++) {
+            part = ary[i];
+            if (part === '.') {
+                ary.splice(i, 1);
+                i -= 1;
+            } else if (part === '..') {
+                // If at the start, or previous value is still ..,
+                // keep them so that when converted to a path it may
+                // still work when converted to a path, even though
+                // as an ID it is less than ideal. In larger point
+                // releases, may be better to just kick out an error.
+                if (i === 0 || (i === 1 && ary[2] === '..') || ary[i - 1] === '..') {
+                    continue;
+                } else if (i > 0) {
+                    ary.splice(i - 1, 2);
+                    i -= 2;
+                }
+            }
+        }
     }
 
     function newContext(contextName) {
@@ -220,41 +264,19 @@ var requirejs, require, define;
             undefEvents = {},
             defQueue = [],
             defined = {},
+            stats = {},
             urlFetched = {},
             bundlesMap = {},
             requireCounter = 1,
             unnormalizedCounter = 1;
 
-        /**
-         * Trims the . and .. from an array of path segments.
-         * It will keep a leading path segment if a .. will become
-         * the first path segment, to help with module name lookups,
-         * which act like paths, but can be remapped. But the end result,
-         * all paths that use this function should look normalized.
-         * NOTE: this method MODIFIES the input array.
-         * @param {Array} ary the array of path segments.
-         */
-        function trimDots(ary) {
-            var i, part;
-            for (i = 0; i < ary.length; i++) {
-                part = ary[i];
-                if (part === '.') {
-                    ary.splice(i, 1);
-                    i -= 1;
-                } else if (part === '..') {
-                    // If at the start, or previous value is still ..,
-                    // keep them so that when converted to a path it may
-                    // still work when converted to a path, even though
-                    // as an ID it is less than ideal. In larger point
-                    // releases, may be better to just kick out an error.
-                    if (i === 0 || (i === 1 && ary[2] === '..') || ary[i - 1] === '..') {
-                        continue;
-                    } else if (i > 0) {
-                        ary.splice(i - 1, 2);
-                        i -= 2;
-                    }
-                }
-            }
+        function debug() {
+            return {
+                config: config,
+                registry: registry,
+                defined: defined,
+                stats: stats
+            };
         }
 
         /**
@@ -422,8 +444,10 @@ var requirejs, require, define;
                 isDefine = true,
                 normalizedName = '';
 
-            //If no name, then it means it is a require call, generate an
-            //internal name.
+            // If no name, then it means it is a require call, generate an
+            // internal name.
+            // TODO: use uuid for generating unique ids, or at least an
+            // id generating function which is random enough.
             if (!name) {
                 isDefine = false;
                 name = '_@r' + (requireCounter += 1);
@@ -497,6 +521,9 @@ var requirejs, require, define;
             };
         }
 
+        // EAP - this is where the magic happens -- a modules is actually
+        // fetched from the cache!! Well, from the registry, but what about 
+        // +++ 
         function getModule(depMap) {
             var id = depMap.id,
                 mod = getOwn(registry, id);
@@ -508,6 +535,9 @@ var requirejs, require, define;
             return mod;
         }
 
+        // EAP: umm, a little wrapper around the real on... 
+        // which allows short-circuiting the actual 'defined' 
+        // event which is emitted when a module is loaded.
         function on(depMap, name, fn) {
             var id = depMap.id,
                 mod = getOwn(registry, id);
@@ -515,6 +545,7 @@ var requirejs, require, define;
             if (hasProp(defined, id) &&
                 (!mod || mod.defineEmitComplete)) {
                 if (name === 'defined') {
+                    stats[id].used += 1;
                     fn(defined[id]);
                 }
             } else {
@@ -557,38 +588,39 @@ var requirejs, require, define;
          * defQueue.
          */
         function takeGlobalQueue() {
-            //Push all the globalDefQueue items into the context's defQueue
-            if (globalDefQueue.length) {
-                each(globalDefQueue, function(queueItem) {
-                    var id = queueItem[0];
-                    if (typeof id === 'string') {
-                        context.defQueueMap[id] = true;
-                    }
-                    defQueue.push(queueItem);
-                });
-                globalDefQueue = [];
-            }
+            // Push all the globalDefQueue items into the context's defQueue
+            // Eap I don't know what this means in the context of multiple contexts, though.
+            globalDefQueue.forEach(function (queueItem) {
+                var id = queueItem[0];
+                if (typeof id === 'string') {
+                    context.defQueueMap[id] = true;
+                }
+                defQueue.push(queueItem);
+            });
+            globalDefQueue = [];
         }
 
         handlers = {
-            'require': function(mod) {
+            require: function(mod) {
                 if (mod.require) {
                     return mod.require;
                 } else {
                     return (mod.require = context.makeRequire(mod.map));
                 }
             },
-            'exports': function(mod) {
+            exports: function(mod) {
                 mod.usingExports = true;
                 if (mod.map.isDefine) {
                     if (mod.exports) {
+                        // ?? stats ??
                         return (defined[mod.map.id] = mod.exports);
                     } else {
+                        // ?? stats ??
                         return (mod.exports = defined[mod.map.id] = {});
                     }
                 }
             },
-            'module': function(mod) {
+            module: function(mod) {
                 if (mod.module) {
                     return mod.module;
                 } else {
@@ -621,12 +653,13 @@ var requirejs, require, define;
                     var depId = depMap.id,
                         dep = getOwn(registry, depId);
 
-                    //Only force things that have not completed
-                    //being defined, so still in the registry,
-                    //and only if it has not been matched up
-                    //in the module already.
+                    // Only force things that have not completed
+                    // being defined, so still in the registry,
+                    // and only if it has not been matched up
+                    // in the module already.
                     if (dep && !mod.depMatched[i] && !processed[depId]) {
                         if (getOwn(traced, depId)) {
+                            // ?? stats ??
                             mod.defineDep(i, defined[depId]);
                             mod.check(); //pass false?
                         } else {
@@ -873,6 +906,8 @@ var requirejs, require, define;
                             //errbacks should not be called for failures in
                             //their callbacks (#699). However if a global
                             //onError is set, use that.
+                            // EAP it looks like here is where the "exports", the body of the 
+                            // module, is executed and stored as the exports.
                             if ((this.events.error && this.map.isDefine) ||
                                 req.onError !== defaultOnError) {
                                 try {
@@ -913,6 +948,13 @@ var requirejs, require, define;
 
                         if (this.map.isDefine && !this.ignore) {
                             defined[id] = exports;
+                            stats[id] = {
+                                used: 0,
+                                defined: true,
+                                errors: 0,
+                                created: new Date(),
+                                lastUsed: null
+                            };
 
                             if (req.onResourceLoad) {
                                 var resLoadMaps = [];
@@ -934,6 +976,10 @@ var requirejs, require, define;
                     //cycle.
                     this.defining = false;
 
+                    // EAP: ok, really, here we are. This is where we hook
+                    // into whether a module is defined.
+                    // this is the ONLY place that a module definition is
+                    // canonically resolved.
                     if (this.defined && !this.defineEmitted) {
                         this.defineEmitted = true;
                         this.emit('defined', this.exports);
@@ -1127,7 +1173,7 @@ var requirejs, require, define;
                         var m = reLocalPath.exec(url);
                         if (m) {
                             var realPath = m[1];
-                            var query = m[2];
+                            // var query = m[2];
 
                             m = rePathExt.exec(realPath);
                             var barePath = m[1];
@@ -1138,31 +1184,31 @@ var requirejs, require, define;
                             // EAP
                             // yes, we need to rewrite the plugin system to handle this...
                             // or create a parallel plugin system...
-                            var handled = false;
+                            // var handled = false;
                             switch (pluginMap.name) {
-                                case 'json':
-                                    vfsContent = window.require_resources.json[barePath];
-                                    break;
-                                case 'yaml':
-                                    vfsContent = window.require_resources.json[barePath];
-                                    break;
-                                case 'text':
-                                    vfsContent = window.require_resources.text[barePath];
-                                    break;
-                                    // Don't do css for now. 
-                                    // Css itself can include imports of other css and fonts,
-                                    // which only work when loaded via urls.
-                                case 'css':
-                                    vfsContent = window.require_resources.css[barePath];
-                                    if (vfsContent) {
-                                        var head = document.getElementsByTagName('head')[0];
-                                        var style = document.createElement('style');
-                                        // console.log('style used: ', barePath, vfsContent.length);
-                                        head.appendChild(style);
-                                        style.innerText = vfsContent;
-                                        load();
-                                        return;
-                                    }
+                            case 'json':
+                                vfsContent = window.require_resources.json[barePath];
+                                break;
+                            case 'yaml':
+                                vfsContent = window.require_resources.json[barePath];
+                                break;
+                            case 'text':
+                                vfsContent = window.require_resources.text[barePath];
+                                break;
+                                // Don't do css for now. 
+                                // Css itself can include imports of other css and fonts,
+                                // which only work when loaded via urls.
+                            case 'css':
+                                vfsContent = window.require_resources.css[barePath];
+                                if (vfsContent) {
+                                    var head = document.getElementsByTagName('head')[0];
+                                    var style = document.createElement('style');
+                                    // console.log('style used: ', barePath, vfsContent.length);
+                                    head.appendChild(style);
+                                    style.innerText = vfsContent;
+                                    load();
+                                    return;
+                                }
                             }
 
                             if (vfsContent) {
@@ -1255,6 +1301,7 @@ var requirejs, require, define;
                 this.check();
             },
 
+            // EAP: lookee, a little event system...
             on: function(name, cb) {
                 var cbs = this.events[name];
                 if (!cbs) {
@@ -1323,18 +1370,18 @@ var requirejs, require, define;
         function intakeDefines() {
             var args;
 
-            //Any defined modules in the global queue, intake them now.
+            // Any defined modules in the global queue, intake them now.
             takeGlobalQueue();
 
-            //Make sure any remaining defQueue items get properly processed.
+            // Make sure any remaining defQueue items get properly processed.
             while (defQueue.length) {
                 args = defQueue.shift();
                 if (args[0] === null) {
                     return onError(makeError('mismatch', 'Mismatched anonymous define() module: ' +
                         args[args.length - 1]));
                 } else {
-                    //args are id, deps, factory. Should be normalized by the
-                    //define() function.
+                    // args are id, deps, factory. Should be normalized by the
+                    // define() function.
                     callGetModule(args);
                 }
             }
@@ -1353,6 +1400,8 @@ var requirejs, require, define;
             makeModuleMap: makeModuleMap,
             nextTick: req.nextTick,
             onError: onError,
+            debug: debug,
+            stats: stats,
 
             /**
              * Set a configuration for the context.
@@ -1518,6 +1567,8 @@ var requirejs, require, define;
                                 contextName +
                                 (relMap ? '' : '. Use require([])')));
                         }
+                        stats[id].used += 1;
+                        stats[id].lastUsed = new Date();
                         return defined[id];
                     }
 
@@ -1597,6 +1648,7 @@ var requirejs, require, define;
                         delete defined[id];
                         delete urlFetched[map.url];
                         delete undefEvents[id];
+                        delete stats[id];
 
                         //Clean queued defines too. Go backwards
                         //in array so that the splices do not
@@ -1839,7 +1891,7 @@ var requirejs, require, define;
      * on a require that are not standardized), and to give a short
      * name for minification/local scope use.
      */
-    req = requirejs = function(deps, callback, errback, optional) {
+    req = function(deps, callback, errback, optional) {
 
         //Find the right context, use default
         var context, config,
@@ -1874,6 +1926,7 @@ var requirejs, require, define;
 
         return context.require(deps, callback, errback);
     };
+    global.requirejs = req;
 
     /**
      * Support require.config() to make it easier to cooperate with other
@@ -1896,8 +1949,8 @@ var requirejs, require, define;
     /**
      * Export require as a global, but only if it does not already exist.
      */
-    if (!require) {
-        require = req;
+    if (!global.require) {
+        global.require = req;
     }
 
     req.version = version;
@@ -1985,13 +2038,13 @@ var requirejs, require, define;
                 var m = reLocalPath.exec(url);
                 if (m) {
                     var realPath = m[1];
-                    var query = m[2];
+                    // var query = m[2];
                     var vfsContent = window.require_modules[realPath];
                     if (vfsContent) {
                         eap_direct_exec = {
                             context: context,
                             moduleName: moduleName
-                        }
+                        };
                         try {
                             // eval(vfsContent);
                             vfsContent();
@@ -2177,10 +2230,10 @@ var requirejs, require, define;
      * return a value to define the module corresponding to the first argument's
      * name.
      */
-    define = function(name, deps, callback) {
+    global.define = function(name, deps, callback) {
         var node, context;
 
-        //Allow for anonymous modules
+        // Allow for anonymous modules
         if (typeof name !== 'string') {
             //Adjust args appropriately
             callback = deps;
@@ -2188,19 +2241,26 @@ var requirejs, require, define;
             name = null;
         }
 
-        //This module may not have dependencies
+        // This module may not have dependencies
         if (!isArray(deps)) {
             callback = deps;
             deps = null;
         }
 
-        //If no name, and callback is a function, then figure out if it a
-        //CommonJS thing with dependencies.
+        // If no name, and callback is a function, then figure out if it a
+        // CommonJS thing with dependencies.
         if (!deps && isFunction(callback)) {
             deps = [];
-            //Remove comments from the callback string,
-            //look for require calls, and pull them into the dependencies,
-            //but only if there are function args.
+            // Remove comments from the callback string,
+            // look for require calls, and pull them into the dependencies,
+            // but only if there are function args.
+            // TODO: why is this contingent up on callback.length? This means
+            // that this code is only called if the callback has at least one 
+            // argument. But if it is using commonjs we might expect it to 
+            // have 0 arguments?? Oh, presumably it will at least have "require",
+            // in order to use a require call, and also exports and module if it needs
+            // that stuff. so commonjs but via amd!
+            // Maybe a better way of wrapping commonjs??
             if (callback.length) {
                 callback
                     .toString()
@@ -2209,17 +2269,17 @@ var requirejs, require, define;
                         deps.push(dep);
                     });
 
-                //May be a CommonJS thing even without require calls, but still
-                //could use exports, and module. Avoid doing exports and module
-                //work though if it just needs require.
-                //REQUIRES the function to expect the CommonJS variables in the
-                //order listed below.
+                // May be a CommonJS thing even without require calls, but still
+                // could use exports, and module. Avoid doing exports and module
+                // work though if it just needs require.
+                // REQUIRES the function to expect the CommonJS variables in the
+                // order listed below.
                 deps = (callback.length === 1 ? ['require'] : ['require', 'exports', 'module']).concat(deps);
             }
         }
 
-        //If in IE 6-8 and hit an anonymous define() call, do the interactive
-        //work.
+        // If in IE 6-8 and hit an anonymous define() call, do the interactive
+        // work.
         // EAP - Note that currentAddingScript is set to the node to which the script
         // src is set, because in old IE it was possible for the script to execute before
         // the load event was called (related to caching). So this
@@ -2253,12 +2313,12 @@ var requirejs, require, define;
             eap_direct_exec = null;
         }
 
-        //Always save off evaluating the def call until the script onload handler.
-        //This allows multiple modules to be in a file without prematurely
-        //tracing dependencies, and allows for anonymous module support,
-        //where the module name is not known until the script onload event
-        //occurs. If no context, use the global queue, and get it processed
-        //in the onscript load callback.
+        // Always save off evaluating the def call until the script onload handler.
+        // This allows multiple modules to be in a file without prematurely
+        // tracing dependencies, and allows for anonymous module support,
+        // where the module name is not known until the script onload event
+        // occurs. If no context, use the global queue, and get it processed
+        // in the onscript load callback.
         if (context) {
             context.defQueue.push([name, deps, callback]);
             context.defQueueMap[name] = true;
